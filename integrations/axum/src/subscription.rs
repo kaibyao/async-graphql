@@ -9,9 +9,9 @@ use axum::{
     body::{boxed, BoxBody, HttpBody},
     extract::{
         ws::{CloseFrame, Message},
-        FromRequest, RequestParts, WebSocketUpgrade,
+        WebSocketUpgrade, FromRequestParts,
     },
-    http::{self, Request, Response, StatusCode},
+    http::{self, Request, Response, StatusCode, request::Parts},
     response::IntoResponse,
     Error,
 };
@@ -30,11 +30,11 @@ use tower_service::Service;
 pub struct GraphQLProtocol(WebSocketProtocols);
 
 #[async_trait::async_trait]
-impl<B: Send> FromRequest<B> for GraphQLProtocol {
+impl<S: Send + Sync> FromRequestParts<S> for GraphQLProtocol {
     type Rejection = StatusCode;
 
-    async fn from_request(req: &mut RequestParts<B>) -> Result<Self, Self::Rejection> {
-        req.headers()
+    async fn from_request_parts(req: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+        req.headers
             .get(http::header::SEC_WEBSOCKET_PROTOCOL)
             .and_then(|value| value.to_str().ok())
             .and_then(|protocols| {
@@ -97,12 +97,12 @@ where
         let schema = self.schema.clone();
 
         Box::pin(async move {
-            let mut parts = RequestParts::new(req);
-            let protocol = match GraphQLProtocol::from_request(&mut parts).await {
+            let (mut parts, mut _body) = req.into_parts();
+            let protocol = match GraphQLProtocol::from_request_parts(&mut parts, &()).await {
                 Ok(protocol) => protocol,
                 Err(err) => return Ok(err.into_response().map(boxed)),
             };
-            let upgrade = match WebSocketUpgrade::from_request(&mut parts).await {
+            let upgrade = match WebSocketUpgrade::from_request_parts(&mut parts, &()).await {
                 Ok(protocol) => protocol,
                 Err(err) => return Ok(err.into_response().map(boxed)),
             };
